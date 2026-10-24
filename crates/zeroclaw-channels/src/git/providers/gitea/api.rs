@@ -4,7 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::de::DeserializeOwned;
 
 use super::payloads::{
-    CreatedComment, GITEA_USER_AGENT, GiteaComment, GiteaIssue, GiteaRelease, GiteaRepo, GiteaUser,
+    CreatedComment, GITEA_USER_AGENT, GiteaComment, GiteaIssue, GiteaRelease, GiteaRepo,
+    GiteaReviewComment, GiteaUser,
 };
 use crate::git::types::{GitChannelError, IssueRef, RepoRef};
 
@@ -170,6 +171,26 @@ impl GiteaApi {
         .await
     }
 
+    pub async fn list_review_comments_since(
+        &self,
+        token: &str,
+        repo: &RepoRef,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<GiteaReviewComment>, GitChannelError> {
+        let base = format!(
+            "{}/repos/{repo}/pulls/comments?since={}",
+            self.base,
+            since.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        );
+        self.get_paged(
+            "GET /repos/{owner}/{repo}/pulls/comments",
+            token,
+            &base,
+            100,
+        )
+        .await
+    }
+
     pub async fn list_releases(
         &self,
         token: &str,
@@ -314,3 +335,4 @@ mod tests {
         assert!(forge_url(base, "../../../evil.test").starts_with("https://git.example.org/"));
     }
 }
+

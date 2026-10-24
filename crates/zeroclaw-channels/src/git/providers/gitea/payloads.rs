@@ -48,16 +48,38 @@ pub struct GiteaIssue {
     pub user: GiteaUser,
     pub created_at: DateTime<Utc>,
     #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub closed_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub html_url: String,
     #[serde(default)]
     pub pull_request: Option<GiteaPullStub>,
+    #[serde(default)]
+    pub requested_reviewers: Vec<GiteaReviewRequest>,
 }
 
 impl GiteaIssue {
     pub fn is_pull_request(&self) -> bool {
         self.pull_request.is_some()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GiteaReviewRequest {
+    #[serde(default)]
+    pub login: String,
+    #[serde(default)]
+    pub username: String,
+}
+
+impl GiteaReviewRequest {
+    pub fn login(&self) -> String {
+        if self.login.is_empty() {
+            self.username.clone()
+        } else {
+            self.login.clone()
+        }
     }
 }
 
@@ -87,6 +109,23 @@ impl GiteaComment {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct GiteaReviewComment {
+    pub id: u64,
+    #[serde(default)]
+    pub body: String,
+    pub user: GiteaUser,
+    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub pull_request_url: String,
+}
+
+impl GiteaReviewComment {
+    pub fn pull_number(&self) -> Option<u64> {
+        self.pull_request_url.rsplit('/').next()?.parse().ok()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct GiteaRelease {
     pub id: u64,
     pub tag_name: String,
@@ -107,3 +146,4 @@ pub struct GiteaRelease {
 pub struct CreatedComment {
     pub id: u64,
 }
+

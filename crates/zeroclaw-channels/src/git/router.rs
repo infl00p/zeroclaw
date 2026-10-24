@@ -10,7 +10,8 @@ use zeroclaw_config::schema::GitEventRoute;
 use super::types::{
     EVT_ISSUE_COMMENT_CREATED, EVT_ISSUES_OPENED, EVT_PR_REVIEW_COMMENT_CREATED,
     EVT_PULL_REQUEST_CLOSED, EVT_PULL_REQUEST_MERGED, EVT_PULL_REQUEST_OPENED,
-    EVT_RELEASE_PUBLISHED, EVT_WORKFLOW_RUN_COMPLETED, EVT_WORKFLOW_RUN_FAILED, KNOWN_EVENT_TYPES,
+    EVT_PULL_REQUEST_REVIEW_REQUESTED, EVT_RELEASE_PUBLISHED, EVT_WORKFLOW_RUN_COMPLETED,
+    EVT_WORKFLOW_RUN_FAILED, KNOWN_EVENT_TYPES,
 };
 
 /// What the routing table says to do with one event.
@@ -44,7 +45,7 @@ pub fn resolve_route(event_type: &str, table: &HashMap<String, GitEventRoute>) -
             }
         }
         None => match event_type {
-            EVT_ISSUE_COMMENT_CREATED | EVT_ISSUES_OPENED | EVT_PULL_REQUEST_OPENED => {
+            EVT_ISSUE_COMMENT_CREATED | EVT_ISSUES_OPENED | EVT_PULL_REQUEST_OPENED | EVT_PULL_REQUEST_REVIEW_REQUESTED => {
                 RouteAction::Message
             }
             _ => RouteAction::Ignore,
@@ -96,7 +97,8 @@ impl TransportPlan {
             issues: routed(EVT_ISSUES_OPENED)
                 || routed(EVT_PULL_REQUEST_OPENED)
                 || routed(EVT_PULL_REQUEST_CLOSED)
-                || routed(EVT_PULL_REQUEST_MERGED),
+                || routed(EVT_PULL_REQUEST_MERGED)
+                || routed(EVT_PULL_REQUEST_REVIEW_REQUESTED),
             comments: routed(EVT_ISSUE_COMMENT_CREATED),
             review_comments: routed(EVT_PR_REVIEW_COMMENT_CREATED),
             releases: routed(EVT_RELEASE_PUBLISHED),
@@ -139,6 +141,7 @@ mod tests {
         for ignored in [
             EVT_PULL_REQUEST_CLOSED,
             EVT_PULL_REQUEST_MERGED,
+            EVT_PULL_REQUEST_REVIEW_REQUESTED,
             EVT_PR_REVIEW_COMMENT_CREATED,
             EVT_WORKFLOW_RUN_COMPLETED,
             EVT_WORKFLOW_RUN_FAILED,
@@ -155,9 +158,7 @@ mod tests {
     #[test]
     fn explicit_entries_override_defaults_either_way() {
         let mut table = HashMap::new();
-        // Opting OUT of a default…
         table.insert(EVT_ISSUE_COMMENT_CREATED.to_string(), route(false, None));
-        // …and opting IN to a non-default.
         table.insert(EVT_WORKFLOW_RUN_FAILED.to_string(), route(true, None));
         assert_eq!(
             resolve_route(EVT_ISSUE_COMMENT_CREATED, &table),
@@ -236,7 +237,6 @@ mod tests {
         let plan = TransportPlan::from_routes(&table);
         assert!(plan.workflow_runs);
         assert!(plan.releases);
-        // Defaults still cover the conversational endpoints.
         assert!(plan.issues);
         assert!(plan.comments);
         assert!(!plan.review_comments);
@@ -256,3 +256,4 @@ mod tests {
         assert!(!plan.any());
     }
 }
+

@@ -41,12 +41,20 @@ impl GiteaProvider {
     ) -> Result<FetchPage, GitChannelError> {
         let mut events = Vec::new();
         let mut advance_to: Option<DateTime<Utc>> = None;
+        let bot_login = self.identity.lock().as_ref().map(|id| id.bot_login.clone());
         for issue in self.api.list_issues_since(token, repo, since).await? {
             events.push(mapping::from_issue_opened(&issue, repo));
             let mut newest = issue.created_at;
             if let Some(transition) = mapping::from_pull_transition(&issue, repo) {
                 newest = newest.max(transition.created_at());
                 events.push(transition);
+            }
+            if let Some(bot_login) = bot_login.as_deref() {
+                if let Some(event) = mapping::from_review_requested(&issue, repo, bot_login) {
+                    let at = event.created_at();
+                    newest = newest.max(at);
+                    events.push(event);
+                }
             }
             advance_to = Some(advance_to.map_or(newest, |m| m.max(newest)));
         }
@@ -72,6 +80,33 @@ impl GiteaProvider {
             .await?
         {
             if let Some(event) = mapping::from_comment(&comment, repo) {
+                advance_to =
+                    Some(advance_to.map_or(comment.created_at, |m| m.max(comment.created_at)));
+                events.push(event);
+            }
+        }
+        Ok(FetchPage {
+            events,
+            advance_to,
+            etag: None,
+            not_modified: false,
+        })
+    }
+
+    async fn fetch_review_comments(
+        &self,
+        token: &str,
+        repo: &RepoRef,
+        since: DateTime<Utc>,
+    ) -> Result<FetchPage, GitChannelError> {
+        let mut events = Vec::new();
+        let mut advance_to: Option<DateTime<Utc>> = None;
+        for comment in self
+            .api
+            .list_review_comments_since(token, repo, since)
+            .await?
+        {
+            if let Some(event) = mapping::from_review_comment(&comment, repo) {
                 advance_to =
                     Some(advance_to.map_or(comment.created_at, |m| m.max(comment.created_at)));
                 events.push(event);
@@ -155,8 +190,9 @@ impl GitProvider for GiteaProvider {
         match stream {
             PollStream::Issues => self.fetch_issues(token, repo, since).await,
             PollStream::Comments => self.fetch_comments(token, repo, since).await,
+            PollStream::ReviewComments => self.fetch_review_comments(token, repo, since).await,
             PollStream::Releases => self.fetch_releases(token, repo, since).await,
-            PollStream::ReviewComments | PollStream::WorkflowRuns | PollStream::Feed => {
+            PollStream::WorkflowRuns | PollStream::Feed => {
                 Ok(FetchPage {
                     events: Vec::new(),
                     advance_to: None,
@@ -235,16 +271,6 @@ impl GitProvider for GiteaProvider {
 }
 
 /// Rewrite a GitHub-canonical [`ForgeRequest`] into Gitea/Forgejo's dialect.
-///
-/// The `git_forge` tool speaks one canonical vocabulary (GitHub's); the forge
-/// that diverges translates on the way through, so forge-specific knowledge
-/// lives behind the provider, not in the tool. Every rewrite below is grounded
-/// in Gitea's OpenAPI/source: the merge endpoint is `POST` with a `Do` verb and
-/// `MergeTitleField`/`MergeMessageField` (GitHub uses `PUT` +
-/// `merge_method`/`commit_title`/`commit_message`); `EditIssueOption` has no
-/// `state_reason`; and `ReviewStateType` spells approval `APPROVED`, not
-/// GitHub's `APPROVE`. Shapes Gitea shares with GitHub (pull close via
-/// `{state:closed}`, labels, milestone id, comments) pass through untouched.
 fn translate_to_gitea(req: crate::git::types::ForgeRequest) -> crate::git::types::ForgeRequest {
     use crate::git::types::ForgeMethod;
     use serde_json::Value;
@@ -371,9 +397,6 @@ mod tests {
         assert_eq!(out.body.unwrap()["state"], "closed");
     }
 
-    // Regression: real Gitea `/user` returns BOTH `login` and `username`
-    // (same value); parsing must not fail with "duplicate field". Forgejo/older
-    // builds may send only one.
     #[test]
     fn gitea_user_accepts_both_login_and_username() {
         use super::super::payloads::GiteaUser;
@@ -407,10 +430,6 @@ mod tests {
         v
     }
 
-    // Regression for the first-page-only bug: `list_issues_since` hard-coded
-    // `page=1`, so any repo with more than one page of matching issues silently
-    // dropped everything past the first page. A full page (100) must trigger a
-    // fetch of page 2.
     #[tokio::test]
     async fn gitea_list_issues_paginates_beyond_first_page() {
         let server = MockServer::start().await;
@@ -448,9 +467,6 @@ mod tests {
         );
     }
 
-    // Live smoke against a real Gitea/Forgejo instance. Ignored by default;
-    // run with `GITEA_TEST_BASE` + `GITEA_TEST_TOKEN` set and `-- --ignored
-    // --nocapture`. Exercises identity resolution + an issue poll end-to-end.
     #[tokio::test]
     #[ignore = "requires live Gitea creds via GITEA_TEST_BASE + GITEA_TEST_TOKEN"]
     async fn gitea_live_identity_and_poll() {
@@ -482,17 +498,13 @@ mod tests {
         }
     }
 
-    // Regression for the cursor bug: a PR created before the cursor but
-    // closed/merged after it emits a transition timed at `closed_at`; the cursor
-    // must advance past that transition, not stall at `created_at` (which would
-    // re-fetch the same transition every tick).
     #[tokio::test]
     async fn gitea_issue_cursor_advances_past_close_after_cursor() {
         let server = MockServer::start().await;
         let now = chrono::Utc::now();
-        let created = now - chrono::Duration::hours(2); // before the cursor
+        let created = now - chrono::Duration::hours(2);
         let cursor = now - chrono::Duration::hours(1);
-        let closed = now; // after the cursor
+        let closed = now;
         let issue = issue_json(
             1,
             &created.to_rfc3339(),
@@ -520,3 +532,4 @@ mod tests {
         );
     }
 }
+

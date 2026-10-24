@@ -1,6 +1,6 @@
 //! Gitea-compatible payload normalization.
 
-use super::payloads::{GiteaComment, GiteaIssue, GiteaRelease, GiteaUser};
+use super::payloads::{GiteaComment, GiteaIssue, GiteaRelease, GiteaReviewComment, GiteaUser};
 use crate::git::events::{
     CommentPost, EventActor, GitEvent, IssuePost, PullPost, PullTransition, ReleasePost,
 };
@@ -17,6 +17,17 @@ pub fn from_comment(comment: &GiteaComment, repo: &RepoRef) -> Option<GitEvent> 
     Some(GitEvent::IssueCommentCreated(CommentPost {
         repo: repo.clone(),
         number: comment.issue_number()?,
+        comment_id: comment.id.to_string(),
+        author: actor(&comment.user),
+        body: comment.body.clone(),
+        created_at: comment.created_at,
+    }))
+}
+
+pub fn from_review_comment(comment: &GiteaReviewComment, repo: &RepoRef) -> Option<GitEvent> {
+    Some(GitEvent::PullRequestReviewCommentCreated(CommentPost {
+        repo: repo.clone(),
+        number: comment.pull_number()?,
         comment_id: comment.id.to_string(),
         author: actor(&comment.user),
         body: comment.body.clone(),
@@ -63,6 +74,28 @@ pub fn from_pull_transition(issue: &GiteaIssue, repo: &RepoRef) -> Option<GitEve
     } else {
         GitEvent::PullRequestClosed(transition)
     })
+}
+
+pub fn from_review_requested(issue: &GiteaIssue, repo: &RepoRef, bot_login: &str) -> Option<GitEvent> {
+    if !issue.is_pull_request() {
+        return None;
+    }
+    if !issue
+        .requested_reviewers
+        .iter()
+        .any(|reviewer| reviewer.login().eq_ignore_ascii_case(bot_login))
+    {
+        return None;
+    }
+    let at = issue.updated_at.unwrap_or(issue.created_at);
+    Some(GitEvent::PullRequestReviewRequested(PullTransition {
+        repo: repo.clone(),
+        number: issue.index,
+        title: issue.title.clone(),
+        author: actor(&issue.user),
+        html_url: issue.html_url.clone(),
+        at,
+    }))
 }
 
 pub fn from_release(release: &GiteaRelease, repo: &RepoRef) -> Option<GitEvent> {
@@ -152,3 +185,4 @@ mod tests {
         assert_eq!(event.dedup_id(), "ghc_99");
     }
 }
+

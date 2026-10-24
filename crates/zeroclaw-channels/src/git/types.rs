@@ -12,6 +12,7 @@ pub const EVT_ISSUES_OPENED: &str = "issues.opened";
 pub const EVT_PULL_REQUEST_OPENED: &str = "pull_request.opened";
 pub const EVT_PULL_REQUEST_CLOSED: &str = "pull_request.closed";
 pub const EVT_PULL_REQUEST_MERGED: &str = "pull_request.merged";
+pub const EVT_PULL_REQUEST_REVIEW_REQUESTED: &str = "pull_request.review_requested";
 pub const EVT_PR_REVIEW_COMMENT_CREATED: &str = "pull_request_review_comment.created";
 pub const EVT_WORKFLOW_RUN_COMPLETED: &str = "workflow_run.completed";
 pub const EVT_WORKFLOW_RUN_FAILED: &str = "workflow_run.failed";
@@ -25,6 +26,7 @@ pub const KNOWN_EVENT_TYPES: &[&str] = &[
     EVT_PULL_REQUEST_OPENED,
     EVT_PULL_REQUEST_CLOSED,
     EVT_PULL_REQUEST_MERGED,
+    EVT_PULL_REQUEST_REVIEW_REQUESTED,
     EVT_PR_REVIEW_COMMENT_CREATED,
     EVT_WORKFLOW_RUN_COMPLETED,
     EVT_WORKFLOW_RUN_FAILED,
@@ -198,3 +200,4 @@ mod tests {
         assert!(IssueRef::parse("octo/repo#abc").is_none());
     }
 }
+
